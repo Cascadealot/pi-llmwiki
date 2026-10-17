@@ -1,7 +1,7 @@
 ---
 name: llm-wiki
 description: Build and maintain a persistent, interlinked Obsidian-compatible markdown wiki using Karpathy's LLM Wiki pattern. Extension-backed with auto-generated metadata, guardrails, and 14 custom tools (+3 opt-in agent-trajectory tools).
-whenToUse: Call wiki_recall at task start to find relevant wiki pages. Call wiki_retro at task end to save new insights. When agent-trajectory working-memory is enabled (opt-in, /wiki-trajectories on), also call wiki_recall_skill at task start to find reusable skills / past cases ("have I done this before?") and wiki_capture_trajectory after non-trivial tasks to record how you solved them. The extension injects a brief status line, but explicit calls with task-specific terms get better results.
+whenToUse: Call wiki_recall at task start to find relevant wiki pages. Whether to capture without being asked is set by the Auto capture setting (llm-wiki.autoCapture); the wiki tools' own descriptions state the current mode. When agent-trajectory working-memory is enabled (opt-in, /wiki-trajectories on), also call wiki_recall_skill at task start to find reusable skills / past cases ("have I done this before?"). The extension injects a brief status line, but explicit calls with task-specific terms get better results.
 ---
 
 # LLM Wiki for Pi
@@ -146,15 +146,15 @@ The gate is the `recallLinksThreshold` setting (namespaced `llm-wiki`, default *
 
 **Skills/cases carve-out (recall adherence):** distilled `skill`/`case` pages (from the opt-in trajectories feature) are meant to be **applied immediately**, so recall inlines their short body directly instead of a bare link the agent tends to skip. The `recallSkillInlineMax` setting (namespaced `llm-wiki`, default **1600** chars, clamped to a non-negative integer) caps how much body is inlined; set it to `0` to disable inlining entirely (skills/cases fall back to pure links-first, and no page body is read at format time). Only relevant when `trajectories` is enabled.
 
-### At End — Save Insights with wiki_retro
+### Saving Insights with wiki_retro
 
-After completing any meaningful task, call `wiki_retro` to save key insights:
+`wiki_retro` saves one atomic insight per call, such as:
 - Non-obvious bug fixes or workarounds
 - Architectural decisions and their rationale
 - Tool/library gotchas you discovered
 - Patterns worth remembering for future sessions
 
-**Do not wait for the user to ask.** Save insights proactively — one atomic insight per call.
+Whether to capture without being asked is set by the Auto capture setting (`llm-wiki.autoCapture`, default OFF); the wiki tools' own descriptions state the current mode. When it is OFF, every write to a wiki entry waits for operator approval.
 
 ```
 wiki_retro(slug="kebab-case-slug", title="Brief descriptive title", body="Insight in your own words with [links](/folder/page.md)")
@@ -241,13 +241,13 @@ Use these directly — they handle scaffolding, bookkeeping, recall, and capture
 2. For better results: call `wiki_recall` explicitly with task-specific terms
 3. Read those pages
 4. Synthesize answer with `[link](/folder/page.md)` citations
-5. If novel: create analysis page via `wiki_ensure_page(type="analysis")`
+5. To file the answer: create analysis page via `wiki_ensure_page(type="analysis")`
 6. Extension auto-updates metadata
 
 ### Task → Capture → Retro
 
-1. Complete a meaningful task
-2. Call `wiki_retro` to save key insights
+1. Decide to save an insight (see Auto capture under "Saving Insights with wiki_retro")
+2. Call `wiki_retro` with one atomic insight
 3. The insight is saved as a single markdown file
 4. Extension auto-updates metadata
 5. Next time, layered recall surfaces your saved insight

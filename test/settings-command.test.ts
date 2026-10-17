@@ -329,8 +329,9 @@ describe("/wiki-settings screen", () => {
     lines = screen.render(80);
     expect(lines[SETTINGS_LINE_OFFSET]).toContain("Global");
 
-    // Move to Notices (row 4) and toggle — the write must land in the
-    // (redirected) global file, not the project file.
+    // Move to Notices (row 5, after Auto capture) and toggle — the write must
+    // land in the (redirected) global file, not the project file.
+    screen.handleInput(DOWN);
     screen.handleInput(DOWN);
     screen.handleInput(DOWN);
     screen.handleInput(DOWN);

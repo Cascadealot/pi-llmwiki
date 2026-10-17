@@ -139,25 +139,36 @@ export function registerWikiObserve(
   pi: ExtensionAPI,
   runtime?: Runtime,
   reminderState?: ReminderState,
+  opts?: { autoCapture?: boolean },
 ): void {
+  // Tool text is fixed at registration; index.ts passes the auto-capture value
+  // read at load. OFF drops every prompt to capture unasked.
+  const captureOn = opts?.autoCapture !== false;
+  const baseDescription =
+    "Record an atomic observation from the current session into the wiki. " +
+    "Observations are timestamped, relevance-rated facts about decisions made, " +
+    "findings discovered, constraints established, or work completed. " +
+    "Saved observations are searchable via wiki_recall and can later be " +
+    "distilled into durable wiki pages via wiki_ensure_page.";
   pi.registerTool({
     name: "wiki_observe",
     label: "Wiki Observe",
-    description:
-      "Record an atomic observation from the current session into the wiki. " +
-      "Observations are timestamped, relevance-rated facts about decisions made, " +
-      "findings discovered, constraints established, or work completed. " +
-      "Saved observations are searchable via wiki_recall and can later be " +
-      "distilled into durable wiki pages via wiki_ensure_page. " +
-      "Call this proactively after non-trivial work — every observation " +
-      "compounds the wiki's knowledge across sessions.",
+    description: captureOn
+      ? `${baseDescription} Call this proactively after non-trivial work — every observation ` +
+        "compounds the wiki's knowledge across sessions."
+      : baseDescription,
     promptSnippet: "Record an observation about the current work",
-    promptGuidelines: [
-      "Call wiki_observe after non-trivial decisions, discoveries, or completions.",
-      "One observation per call. Use multiple calls for multiple observations.",
-      "Rate relevance honestly — most observations are medium or low, not critical.",
-      "Observations compound across sessions via wiki_recail.",
-    ],
+    promptGuidelines: captureOn
+      ? [
+          "Call wiki_observe after non-trivial decisions, discoveries, or completions.",
+          "One observation per call. Use multiple calls for multiple observations.",
+          "Rate relevance honestly — most observations are medium or low, not critical.",
+          "Observations compound across sessions via wiki_recail.",
+        ]
+      : [
+          "One observation per call. Use multiple calls for multiple observations.",
+          "Rate relevance honestly — most observations are medium or low, not critical.",
+        ],
     parameters: Type.Object({
       title: Type.String({
         description:
@@ -286,7 +297,16 @@ export function registerWikiObserve(
  *
  * Shown once per session when `notices` are enabled; silenced otherwise.
  */
-export function buildSessionNotice(): string {
+export function buildSessionNotice(autoCapture = true): string {
+  if (!autoCapture) {
+    return [
+      "\u{1F9E0} **LLM Wiki active.**",
+      "Retrieval (inline): recall runs automatically each turn — use `wiki_search` to query",
+      "and `read` to open pages.",
+      "Auto capture is OFF: every write to a wiki entry waits for operator approval.",
+      "Silence these notices with `llm-wiki.notices: false`.",
+    ].join(" ");
+  }
   return [
     "\u{1F9E0} **LLM Wiki active.**",
     "Retrieval (inline): recall runs automatically each turn — use `wiki_search` to query",

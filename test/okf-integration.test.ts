@@ -254,6 +254,13 @@ describe("OKF integration", () => {
       join(root, "package.json"),
       JSON.stringify({ name: "okf-acceptance", version: "1.0.0", description: "Acceptance" }),
     );
+    // Upstream behavior is auto capture ON; the default is OFF, which withholds
+    // the setup directive (covered by the next test).
+    mkdirSync(join(root, ".pi"), { recursive: true });
+    writeFileSync(
+      join(root, ".pi", "settings.json"),
+      JSON.stringify({ "llm-wiki": { autoCapture: true } }),
+    );
     const harness = registerFullExtensionHarness(root);
 
     await harness.emit(
@@ -392,6 +399,102 @@ describe("OKF integration", () => {
       readJson<{ pages: Record<string, unknown> }>(join(paths.meta, "registry.json"), { pages: {} })
         .pages["concepts/foundation-concept"],
     ).toBeDefined();
+  });
+
+  it("auto capture OFF by default: no capture prompts, entry writes gated", async () => {
+    const root = join(import.meta.dirname, "..", "tmp", `okf-capture-off-${Date.now()}`);
+    vaultRoots.push(root);
+    mkdirSync(root, { recursive: true });
+    const harness = registerFullExtensionHarness(root);
+    const startCtx = {
+      cwd: root,
+      hasUI: true,
+      ui: { setStatus: () => {}, notify: () => {} },
+      model: { id: "t" },
+    };
+    // First start creates the vault and returns before the notice (and arms
+    // the setup directive); the second sends the notice.
+    await harness.emit("session_start", {}, startCtx);
+    await harness.emit("session_start", {}, startCtx);
+
+    // Session notice names no capture tool.
+    const notice = JSON.stringify(harness.messages);
+    expect(notice).toContain("Auto capture is OFF");
+    expect(notice).not.toContain("wiki_observe");
+
+    // No setup directive; footer names retrieval only.
+    const start = JSON.stringify(
+      await harness.emit(
+        "before_agent_start",
+        { prompt: "Build the Foundation feature", systemPrompt: "base" },
+        { cwd: root, hasUI: false, model: { id: "t" } },
+      ),
+    );
+    expect(start).not.toContain("Wiki Setup Required");
+    expect(start).not.toContain("wiki_retro");
+    expect(start).toContain("use wiki_recall for deeper search.</wiki_status>");
+
+    const blocked = (results: unknown[]) =>
+      results.find((r) => (r as { block?: boolean } | undefined)?.block) as
+        | { block: true; reason: string }
+        | undefined;
+    const wikiFile = join(getVaultPaths(root).wiki, "concepts", "x.md");
+
+    // Headless: entry writes blocked, reads and upkeep pass.
+    const noUi = { cwd: root, hasUI: false };
+    expect(
+      blocked(await harness.emit("tool_call", { toolName: "wiki_retro", input: {} }, noUi))?.reason,
+    ).toContain("no operator is present");
+    expect(
+      blocked(
+        await harness.emit(
+          "tool_call",
+          { toolName: "write", input: { path: wikiFile, content: "x" } },
+          noUi,
+        ),
+      ),
+    ).toBeDefined();
+    expect(
+      blocked(await harness.emit("tool_call", { toolName: "wiki_search", input: {} }, noUi)),
+    ).toBeUndefined();
+    expect(
+      blocked(await harness.emit("tool_call", { toolName: "wiki_rebuild_meta", input: {} }, noUi)),
+    ).toBeUndefined();
+
+    // With a UI: the operator decides, and sees the full input.
+    const asked: string[] = [];
+    const ui = (answer: boolean) => ({
+      cwd: root,
+      hasUI: true,
+      ui: {
+        confirm: async (_t: string, message: string) => {
+          asked.push(message);
+          return answer;
+        },
+      },
+    });
+    const input = { title: "T", content: "the full observation text", relevance: "low" };
+    expect(
+      blocked(await harness.emit("tool_call", { toolName: "wiki_observe", input }, ui(false)))
+        ?.reason,
+    ).toContain("Operator declined");
+    expect(asked[0]).toContain("the full observation text");
+    expect(
+      blocked(await harness.emit("tool_call", { toolName: "wiki_observe", input }, ui(true))),
+    ).toBeUndefined();
+
+    // Toggle ON: applies at once, no approval asked.
+    mkdirSync(join(root, ".pi"), { recursive: true });
+    writeFileSync(
+      join(root, ".pi", "settings.json"),
+      JSON.stringify({ "llm-wiki": { autoCapture: true } }),
+    );
+    asked.length = 0;
+    expect(
+      blocked(await harness.emit("tool_call", { toolName: "wiki_observe", input }, ui(false))),
+    ).toBeUndefined();
+    expect(asked).toHaveLength(0);
+    await harness.emit("session_shutdown");
   });
 
   it("skips before-agent recall when no vault exists", async () => {

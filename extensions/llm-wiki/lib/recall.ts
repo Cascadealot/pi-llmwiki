@@ -925,9 +925,13 @@ function inlineBlockLines(body: string, indent: string): string[] {
  */
 export function formatRecallContext(
   results: RecallResult[],
-  opts: { linksOnly?: boolean; skillInlineMax?: number } = {},
+  opts: { linksOnly?: boolean; skillInlineMax?: number; autoCapture?: boolean } = {},
 ): string {
   if (results.length === 0) return "";
+
+  // Auto capture OFF: withhold the prompt to add findings.
+  const captureNudge =
+    opts.autoCapture === false ? "" : " Add new findings via wiki_ensure_page or wiki_retro.";
 
   const skillInlineMax = opts.skillInlineMax ?? DEFAULT_RECALL_SKILL_INLINE_MAX;
   const hasLayered = results.some((r) => r.vaultLabel);
@@ -965,8 +969,7 @@ export function formatRecallContext(
 
     lines.push(
       "",
-      "Call `read` on the exact path shown under each link to pull its full content." +
-        " Add new findings via wiki_ensure_page or wiki_retro.",
+      `Call \`read\` on the exact path shown under each link to pull its full content.${captureNudge}`,
       "",
     );
 
@@ -1001,10 +1004,7 @@ export function formatRecallContext(
     lines.push("");
   }
 
-  lines.push(
-    "Use `read` to view full pages. Add new findings via wiki_ensure_page or wiki_retro.",
-    "",
-  );
+  lines.push(`Use \`read\` to view full pages.${captureNudge}`, "");
 
   return lines.join("\n");
 }

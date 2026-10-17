@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { Runtime } from "./runtime.js";
 import {
+  autoCaptureEnabled,
   loadTaskConfig,
   loadTaskConfigSources,
   parseModelRef,
@@ -109,6 +110,15 @@ const SETTINGS: SettingDef[] = [
     type: "boolean",
     hint: "Capture agent trajectories into the vault.",
     format: (v) => (v ? "ON" : "OFF"),
+    toEdit: () => "",
+    parse: (input) => Boolean(Boolean(input) && /on|true|1/i.test(input)),
+  },
+  {
+    key: "autoCapture",
+    label: "Auto capture",
+    type: "boolean",
+    hint: "ON: agent is prompted to capture; entry writes need no approval. OFF: no capture prompts; every entry write waits for your approval.",
+    format: (v) => (v != null ? (v ? "ON" : "OFF") : "OFF (default)"),
     toEdit: () => "",
     parse: (input) => Boolean(Boolean(input) && /on|true|1/i.test(input)),
   },
@@ -393,6 +403,7 @@ async function showSettingsTui(ui: Ui, cwd: string, scope: SettingScope): Promis
   const items = [scopeItem, ...buildSettingItems(loadTaskConfigSources(cwd), ui.notify.bind(ui))];
   // Tracks the effective value so the reload note fires on actual changes.
   let prevTrajectories = trajectoriesEnabled(loadTaskConfig(cwd));
+  let prevAutoCapture = autoCaptureEnabled(loadTaskConfig(cwd));
 
   let list: SettingsList | undefined;
   let screenRef: SettingsScreen | undefined;
@@ -444,6 +455,17 @@ async function showSettingsTui(ui: Ui, cwd: string, scope: SettingScope): Promis
             prevTrajectories = next;
             ui.notify(
               "LLM Wiki: trajectory tools register at startup \u2014 new value applies after a reload",
+            );
+          }
+        }
+        // The approval gate and per-turn prompts read the setting live; only
+        // the tool descriptions are fixed at registration.
+        if (def.key === "autoCapture") {
+          const next = Boolean(value);
+          if (next !== prevAutoCapture) {
+            prevAutoCapture = next;
+            ui.notify(
+              `LLM Wiki: auto capture ${next ? "ON" : "OFF"} \u2014 approval gate and capture prompts apply now; tool descriptions update after /reload`,
             );
           }
         }

@@ -116,6 +116,23 @@ export interface TaskConfig {
   notices?: boolean;
 
   /**
+   * Auto capture. Default `false` (OFF): only an explicit `autoCapture: true`
+   * turns it on, so a missing or unreadable setting never re-enables
+   * unrequested writes.
+   *
+   * ON — upstream behavior: the extension prompts the agent to capture
+   * (periodic reminder, session notice, system-prompt footer, recall footer,
+   * tool guidance) and entry writes need no operator approval.
+   *
+   * OFF — every prompt to capture is withheld, and every entry write (wiki
+   * entry tools, `write`/`edit` under a vault's `wiki/`, `bash` whose command
+   * text names `.llm-wiki`) waits for operator approval. With no UI to ask,
+   * the write is blocked. Upkeep (metadata, QMD index, lint report, event
+   * log) is not gated.
+   */
+  autoCapture?: boolean;
+
+  /**
    * Run automatic recall injection in the `before_agent_start` hook — the
    * per-turn wiki recall that surfaces relevant pages without the agent asking.
    * Default `true` for backward compatibility.
@@ -204,6 +221,15 @@ export const TASK_DEFAULTS: TaskConfig = {};
  */
 export function noticesEnabled(config: TaskConfig | undefined): boolean {
   return config?.notices !== false;
+}
+
+/**
+ * Resolve whether auto capture is on. INVERSE polarity of
+ * {@link noticesEnabled}: defaults to `false`; only an explicit
+ * `autoCapture: true` turns it on. See {@link TaskConfig.autoCapture}.
+ */
+export function autoCaptureEnabled(config: TaskConfig | undefined): boolean {
+  return config?.autoCapture === true;
 }
 
 /**
@@ -316,6 +342,10 @@ function readNamespacedConfig(path: string): Partial<TaskConfig> {
 
     if (typeof section.autoRecall === "boolean") {
       out.autoRecall = section.autoRecall;
+    }
+
+    if (typeof section.autoCapture === "boolean") {
+      out.autoCapture = section.autoCapture;
     }
 
     if (typeof section.ambientPersonalVault === "boolean") {
@@ -540,6 +570,7 @@ const KNOWN_KEYS = [
   "recallLinksThreshold",
   "recallSkillInlineMax",
   "notices",
+  "autoCapture",
   "autoRecall",
   "ambientPersonalVault",
   "trajectories",

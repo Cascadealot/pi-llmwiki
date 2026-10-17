@@ -100,7 +100,13 @@ _Add links to related pages._`;
  * The model calls this to save an atomic insight from a completed task.
  * Inspired by the memex_retro pattern.
  */
-export function registerWikiRetro(pi: ExtensionAPI, runtime?: Runtime): void {
+export function registerWikiRetro(
+  pi: ExtensionAPI,
+  runtime?: Runtime,
+  opts?: { autoCapture?: boolean },
+): void {
+  // Tool text is fixed at registration; OFF drops the end-of-task prompt.
+  const captureOn = opts?.autoCapture !== false;
   pi.registerTool({
     name: "wiki_retro",
     label: "Wiki Retro",
@@ -110,7 +116,9 @@ export function registerWikiRetro(pi: ExtensionAPI, runtime?: Runtime): void {
       "surfaced automatically by wiki_recall in future sessions.",
     promptSnippet: "Save atomic insights from completed tasks into the wiki",
     promptGuidelines: [
-      "Use wiki_retro at the END of every meaningful task to save what you learned.",
+      ...(captureOn
+        ? ["Use wiki_retro at the END of every meaningful task to save what you learned."]
+        : []),
       "Write atomic insights — one insight per call. Use multiple calls for multiple insights.",
       "The insight will be auto-surfaced by wiki_recall in future sessions.",
     ],

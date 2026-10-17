@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { bootstrapVault } from "./lib/bootstrap.js";
+import { installCaptureGate } from "./lib/capture-gate.js";
 import { registerWikiDashboardCommand } from "./lib/dashboard-command.js";
 import { installGuardrails } from "./lib/guardrails.js";
 import { buildAgentStartInjection, normalizeSystemPrompt } from "./lib/inject.js";
@@ -24,6 +25,7 @@ import { registerWikiRetro } from "./lib/retro.js";
 import { registerBackgroundRuntime } from "./lib/runtime.js";
 import { registerWikiSettingsCommand } from "./lib/settings-command.js";
 import {
+  autoCaptureEnabled,
   autoRecallEnabled,
   loadTaskConfig,
   noticesEnabled,
@@ -102,6 +104,12 @@ export default function (pi: ExtensionAPI) {
   const wikiAppliesTo = (cwd: string): boolean =>
     resolveProjectVaultRoot(cwd) !== null || personalVaultIsAmbient(runtime.config);
 
+  // Auto capture (default OFF). `captureAtLoad` fixes the tool descriptions,
+  // which pi cannot change after registration; `captureOn` is read from disk at
+  // each use so the gate and the per-turn prompts follow a toggle at once.
+  const captureAtLoad = autoCaptureEnabled(loadTaskConfig(process.cwd()));
+  const captureOn = (): boolean => autoCaptureEnabled(loadTaskConfig(process.cwd()));
+
   registerWikiBootstrap(pi);
   registerWikiCaptureSource(pi, runtime);
   registerWikiIngest(pi, runtime);
@@ -115,7 +123,7 @@ export default function (pi: ExtensionAPI) {
   registerWikiLogEvent(pi);
   registerWikiWatch(pi);
   registerWikiRecall(pi, runtime);
-  registerWikiRetro(pi, runtime);
+  registerWikiRetro(pi, runtime, { autoCapture: captureAtLoad });
   // Agent working-memory (issue #80): capture what the agent *did* (its
   // tool-call trajectory), distill it into reusable skills, and recall past
   // skills/cases. OPT-IN, default OFF — registered ONLY when enabled so the 3
@@ -140,17 +148,19 @@ export default function (pi: ExtensionAPI) {
   registerWikiSettingsCommand(pi, runtime);
   registerWikiDashboardCommand(pi, runtime);
   const reminderState = createReminderState();
-  registerWikiObserve(pi, runtime, reminderState);
+  registerWikiObserve(pi, runtime, reminderState, { autoCapture: captureAtLoad });
   // Visible observe/retro reminder by default (issue #77); silenced when the
   // user sets `llm-wiki.notices: false`. Resolver reads the live config so the
   // setting takes effect without a restart. `display: false` still injects the
   // reminder into model context, so the "no wiki here" case needs its own gate.
   registerObservationReminder(pi, reminderState, {
     display: () => noticesEnabled(runtime.config),
-    enabled: () => wikiAppliesTo(process.cwd()),
+    enabled: () => wikiAppliesTo(process.cwd()) && captureOn(),
   });
 
   installGuardrails(pi, runtime);
+  // After the guardrails, so a write they block is never put to the operator.
+  installCaptureGate(pi);
 
   // Track if wiki was just auto-created and needs topic inference
   let needsTopicInference = false;
@@ -238,7 +248,11 @@ export default function (pi: ExtensionAPI) {
     // interrupts; silenced when `llm-wiki.notices: false`.
     if (noticesEnabled(runtime.config)) {
       pi.sendMessage(
-        { customType: "wiki-session-notice", content: buildSessionNotice(), display: true },
+        {
+          customType: "wiki-session-notice",
+          content: buildSessionNotice(captureOn()),
+          display: true,
+        },
         { deliverAs: "nextTurn" },
       );
     }
@@ -258,6 +272,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     const prompt = event.prompt || "";
+    const capture = captureOn();
     // Volatile, per-turn content (recall results + one-time topic-inference
     // directive) MUST NOT go into the system prompt (issue #92). The system
     // prompt is the provider's primary cache prefix; rewriting it every turn
@@ -267,8 +282,9 @@ export default function (pi: ExtensionAPI) {
     // leaves the cached system-prompt prefix stable.
     let dynamicContext = "";
 
-    // Topic inference on first turn after auto-creation
-    if (needsTopicInference && prompt.trim()) {
+    // Topic inference on first turn after auto-creation. Auto capture OFF
+    // withholds this directive: it tells the agent to write before answering.
+    if (needsTopicInference && prompt.trim() && capture) {
       needsTopicInference = false;
 
       // Gather project context clues for topic inference
@@ -324,6 +340,7 @@ Then call wiki_bootstrap with the inferred topic and mode to finalize the setup.
         // includePersonal=false here mirrors the auto-injection search scope.
         const linksOnly = shouldUseLinksFirst(vaultPageCount(paths, false), runtime.config);
         const recallContext = formatRecallContext(results, {
+          autoCapture: capture,
           linksOnly,
           skillInlineMax: runtime.config?.recallSkillInlineMax,
         });
@@ -346,7 +363,11 @@ Then call wiki_bootstrap with the inferred topic and mode to finalize the setup.
     // Split into a cache-stable system prompt (static footer only) and a
     // volatile tail message (issue #92). See lib/inject.ts for the contract.
     const priorSystemPrompt = normalizeSystemPrompt(event.systemPrompt);
-    const { systemPrompt, message } = buildAgentStartInjection(priorSystemPrompt, [dynamicContext]);
+    const { systemPrompt, message } = buildAgentStartInjection(
+      priorSystemPrompt,
+      [dynamicContext],
+      capture,
+    );
 
     // Only claim a systemPrompt change when the footer actually altered the
     // string (a carry-forward turn already carries it, so this no-ops).

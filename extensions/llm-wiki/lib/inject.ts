@@ -20,6 +20,15 @@ export const WIKI_STATUS_BLOCK =
   "<wiki_status>LLM Wiki active — use wiki_recall for deeper search, wiki_observe to record observations, wiki_retro to save insights.</wiki_status>";
 
 /**
+ * Footer used when auto capture is OFF: names retrieval only, so the system
+ * prompt carries no prompt to capture.
+ */
+export const WIKI_STATUS_BLOCK_NO_CAPTURE =
+  "<wiki_status>LLM Wiki active — use wiki_recall for deeper search.</wiki_status>";
+
+const WIKI_STATUS_BLOCKS = [WIKI_STATUS_BLOCK, WIKI_STATUS_BLOCK_NO_CAPTURE];
+
+/**
  * Append the wiki-status footer to a system prompt — idempotently (issue #87).
  *
  * Strips any already-present footer (with its leading blank line) before
@@ -28,9 +37,12 @@ export const WIKI_STATUS_BLOCK =
  * prompt, so the footer never stacks (2x, 3x, ...).
  * See test/inject-idempotent.test.ts.
  */
-export function appendWikiStatus(systemPrompt: string): string {
-  const base = systemPrompt.split(`\n\n${WIKI_STATUS_BLOCK}`).join("");
-  return `${base}\n\n${WIKI_STATUS_BLOCK}`;
+export function appendWikiStatus(systemPrompt: string, autoCapture = true): string {
+  // Strip both variants so a mid-session toggle replaces the footer instead of
+  // stacking the other one.
+  let base = systemPrompt;
+  for (const block of WIKI_STATUS_BLOCKS) base = base.split(`\n\n${block}`).join("");
+  return `${base}\n\n${autoCapture ? WIKI_STATUS_BLOCK : WIKI_STATUS_BLOCK_NO_CAPTURE}`;
 }
 
 /** Normalize upstream Pi and OMP system-prompt representations. */
@@ -79,8 +91,9 @@ export interface AgentStartInjection {
 export function buildAgentStartInjection(
   baseSystemPrompt: string | readonly string[] | null | undefined,
   dynamicBlocks: Array<string | undefined>,
+  autoCapture = true,
 ): AgentStartInjection {
-  const systemPrompt = appendWikiStatus(normalizeSystemPrompt(baseSystemPrompt));
+  const systemPrompt = appendWikiStatus(normalizeSystemPrompt(baseSystemPrompt), autoCapture);
   const content = dynamicBlocks
     .map((b) => b?.trim())
     .filter((b): b is string => Boolean(b))
